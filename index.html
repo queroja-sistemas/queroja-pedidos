@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>KUKI | Cookies Artesanais</title>
+<title>Faça seu pedido</title>
 
 <style>
 :root{
@@ -734,8 +734,8 @@ body{
 
 <header>
     <div class="header">
-        <a class="brand" href="#" aria-label="KUKI">
-            <img src="images/logo-kuki-transparente.png" alt="KUKI Cookies">
+        <a class="brand" id="brandLink" href="#" aria-label="Loja">
+            <img id="brandLogo" src="images/logo-kuki-transparente.png" alt="Logo da loja">
         </a>
 
         <div class="header-actions">
@@ -974,47 +974,13 @@ function setStoreHours(data){
     return storeHoursLoaded;
 }
 
-async function loadStoreHours(){
-    if(storeHoursLoading) return;
-
-    storeHoursLoading = true;
-
-    try{
-        const url = new URL(SUPABASE_URL + "/rest/v1/HORARIOS");
-        url.searchParams.set("select", "*");
-
-        const response = await fetch(url.toString(),{
-            method:"GET",
-            headers:{
-                "Accept":"application/json",
-                "apikey": SUPABASE_ANON_KEY,
-                "Authorization": "Bearer " + SUPABASE_ANON_KEY
-            }
-        });
-
-        if(!response.ok) throw new Error("HTTP " + response.status);
-
-        const data = await response.json();
-
-        if(!setStoreHours(data)){
-            throw new Error("Nenhum horário válido retornado.");
-        }
-    }catch(error){
-        console.error("Erro ao carregar horários da loja:", error);
-        storeHoursLoaded = false;
-    }finally{
-        storeHoursLoading = false;
-        updateStoreStatus();
-    }
-}
-
 function getStoreState(){
     if(!storeHoursLoaded || !storeHours){
         return {
             open:false,
             loading:storeHoursLoading,
             message:storeHoursLoading
-                ? "⏳ Consultando os horários da KUKI..."
+                ? "⏳ Consultando os horários da loja..."
                 : "🔴 Não foi possível consultar os horários da loja no momento."
         };
     }
@@ -1026,7 +992,7 @@ function getStoreState(){
     if(!schedule || !schedule.aberto){
         return {
             open:false,
-            message:"🔴 Hoje a KUKI está fechada. Voltamos em breve com cookies fresquinhos! 🍪🤎"
+            message:"🔴 Hoje " + (lojaInfo && lojaInfo.nome ? lojaInfo.nome : "a loja") + " está fechada. Voltamos em breve! 🤎"
         };
     }
 
@@ -1084,6 +1050,13 @@ const HISTORY_WEBHOOK_URL =
 const SUPABASE_URL = "https://delakuvbbayovkpxemgm.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_FqBkrIbKuNSmh78DidDpow_30o7P4kP";
 const CLIENTS_TABLE = "CLIENTES";
+
+// Multi-tenant: qual loja este site está mostrando. Lido da URL
+// (ex.: ?loja=queroja); "queroja" é o padrão pra manter o link
+// atual funcionando sem precisar acrescentar o parâmetro.
+const LOJA_SLUG = new URLSearchParams(window.location.search).get("loja") || "queroja";
+let LOJA_ID = null;
+let lojaInfo = null;
 
 let products = [
     {
@@ -1150,66 +1123,81 @@ function rowValue(row, keys, fallback=""){
     return fallback;
 }
 
-async function loadActiveTable(tableName){
-    const url = new URL(SUPABASE_URL + "/rest/v1/" + tableName);
-    url.searchParams.set("select", "*");
-    url.searchParams.set("order", "id.asc");
-
-    const response = await fetch(url.toString(), {
-        method:"GET",
-        headers:{
-            "Accept":"application/json",
-            "apikey":SUPABASE_ANON_KEY,
-            "Authorization":"Bearer " + SUPABASE_ANON_KEY
-        }
-    });
-
-    if(!response.ok) throw new Error(tableName + " HTTP " + response.status);
-    const rows = await response.json();
-    return Array.isArray(rows)
-        ? rows.filter(row => {
-            const active = row.ATIVO ?? row.ativo;
-            return active === undefined || active === null || isActiveValue(active);
-        })
-        : [];
-}
-
-async function loadProductsFromSupabase(){
-    try{
-        const rows = await loadActiveTable("PRODUTOS");
-        if(rows.length){
-            products = rows.map(row => ({
-                id:String(rowValue(row,["id","ID","CODIGO"], "")),
-                name:String(rowValue(row,["NOME","nome"], "PRODUTO")),
-                price:Number(rowValue(row,["PRECO","preco","VALOR","valor"], 0)) || 0,
-                desc:String(rowValue(row,["DESCRICAO","descricao"], "")),
-                image:String(rowValue(row,["FOTO_URL","foto_url"], "") || ""),
-                active:isActiveValue(row.ATIVO ?? row.ativo)
-            }));
-        }
-    }catch(error){
-        console.error("Erro ao carregar produtos do Supabase:", error);
-        products = [];
+function applyLojaBranding(loja){
+    const logo = document.getElementById("brandLogo");
+    if(logo && loja.logo_url){
+        logo.src = loja.logo_url;
+        logo.alt = loja.nome || "Logo da loja";
     }
-    renderProducts();
+    if(loja.nome){
+        document.title = loja.nome + " | Faça seu pedido";
+        const brandLink = document.getElementById("brandLink");
+        if(brandLink) brandLink.setAttribute("aria-label", loja.nome);
+    }
 }
 
-function fillSelectOptions(selectId, rows, placeholder, includeValue){
+function fillSelectOptionsFromStrings(selectId, values, placeholder){
     const select = document.getElementById(selectId);
     if(!select) return;
-
     const current = select.value;
-    const options = rows.map(row => {
-        const name = String(rowValue(row,["NOME","nome","DESCRICAO","descricao"], "")).trim();
-        const value = includeValue
-            ? String(rowValue(row,["NOME","nome","TIPO","tipo"], name)).trim()
-            : name;
-        if(!name) return "";
-        return `<option value="${escapeOption(value)}">${escapeOption(name)}</option>`;
-    }).filter(Boolean).join("");
-
+    const options = (values || []).filter(Boolean).map(function(name){
+        return `<option value="${escapeOption(name)}">${escapeOption(name)}</option>`;
+    }).join("");
     select.innerHTML = `<option value="">${placeholder}</option>` + options;
     if(current && [...select.options].some(o => o.value === current)) select.value = current;
+}
+
+// Substitui as antigas leituras diretas de PRODUTOS/FORMAS_PAGAMENTO/
+// FORMAS_ENTREGA/HORARIOS (bloqueadas depois do isolamento multi-tenant
+// por loja) por uma única chamada à função pública obter_loja_publica,
+// que já devolve tudo filtrado pela loja do slug atual.
+async function loadStoreData(){
+    try{
+        const url = new URL(SUPABASE_URL + "/rest/v1/rpc/obter_loja_publica");
+        const response = await fetch(url.toString(), {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "apikey": SUPABASE_ANON_KEY,
+                "Authorization": "Bearer " + SUPABASE_ANON_KEY
+            },
+            body: JSON.stringify({ p_slug: LOJA_SLUG })
+        });
+
+        if(!response.ok) throw new Error("HTTP " + response.status);
+
+        const loja = await response.json();
+        if(!loja || !loja.id){
+            throw new Error("Loja não encontrada para o slug: " + LOJA_SLUG);
+        }
+
+        LOJA_ID = loja.id;
+        lojaInfo = loja;
+        applyLojaBranding(loja);
+
+        products = (loja.produtos || []).map(function(p){
+            return {
+                id: String(p.id),
+                name: p.nome || "PRODUTO",
+                price: Number(p.preco) || 0,
+                desc: p.descricao || "",
+                image: p.foto_url || "",
+                active: true
+            };
+        });
+
+        fillSelectOptionsFromStrings("payment", loja.formas_pagamento, "Selecione");
+        fillSelectOptionsFromStrings("delivery", loja.formas_entrega, "Selecione");
+
+        setStoreHours(loja.horarios || []);
+    }catch(error){
+        console.error("Erro ao carregar dados da loja:", error);
+        products = [];
+        storeHoursLoaded = false;
+    }finally{
+        renderProducts();
+        updateStoreStatus();
+    }
 }
 
 function escapeOption(value){
@@ -1218,34 +1206,6 @@ function escapeOption(value){
         .replace(/</g,"&lt;")
         .replace(/>/g,"&gt;")
         .replace(/"/g,"&quot;");
-}
-
-async function loadPaymentAndDeliveryFromSupabase(){
-    const [paymentsResult, deliveriesResult] = await Promise.allSettled([
-        loadActiveTable("FORMAS_PAGAMENTO"),
-        loadActiveTable("FORMAS_ENTREGA")
-    ]);
-
-    if(paymentsResult.status === "fulfilled"){
-        fillSelectOptions("payment", paymentsResult.value, "Selecione");
-    }else{
-        console.error("Erro ao carregar formas de pagamento:", paymentsResult.reason);
-        fillSelectOptions("payment", [], "Selecione");
-    }
-
-    if(deliveriesResult.status === "fulfilled"){
-        fillSelectOptions("delivery", deliveriesResult.value, "Selecione");
-    }else{
-        console.error("Erro ao carregar formas de entrega:", deliveriesResult.reason);
-        fillSelectOptions("delivery", [], "Selecione");
-    }
-}
-
-async function loadStoreData(){
-    await Promise.all([
-        loadProductsFromSupabase(),
-        loadPaymentAndDeliveryFromSupabase()
-    ]);
 }
 
 let cart = {};
@@ -1432,7 +1392,7 @@ async function applyCoupon(){
                     "apikey": SUPABASE_ANON_KEY,
                     "Authorization": "Bearer " + SUPABASE_ANON_KEY
                 },
-                body: JSON.stringify({ p_codigo: code, p_telefone: phoneParaValidar })
+                body: JSON.stringify({ p_codigo: code, p_loja_id: LOJA_ID, p_telefone: phoneParaValidar })
             }
         );
 
@@ -1936,7 +1896,7 @@ async function lookupCustomerByPhone(){
                 "Accept": "application/json",
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ p_telefone: phone })
+            body: JSON.stringify({ p_telefone: phone, p_loja_id: LOJA_ID })
         });
 
         clearTimeout(timeout);
@@ -2092,9 +2052,14 @@ async function finishOrder(){
         return;
     }
 
+    if(!LOJA_ID){
+        alert("Ainda estamos carregando os dados da loja. Aguarde um instante e tente de novo.");
+        return;
+    }
+
     const storeState = getStoreState();
     if(!storeState.open){
-        alert("A KUKI está fechada no momento. Não é possível finalizar pedidos agora.");
+        alert((lojaInfo && lojaInfo.nome ? lojaInfo.nome : "A loja") + " está fechada no momento. Não é possível finalizar pedidos agora.");
         return;
     }
 
@@ -2160,7 +2125,7 @@ async function finishOrder(){
                         "apikey": SUPABASE_ANON_KEY,
                         "Authorization": "Bearer " + SUPABASE_ANON_KEY
                     },
-                    body: JSON.stringify({ p_codigo: appliedCoupon.codigo, p_telefone: phone })
+                    body: JSON.stringify({ p_codigo: appliedCoupon.codigo, p_loja_id: LOJA_ID, p_telefone: phone })
                 }
             );
 
@@ -2194,6 +2159,7 @@ async function finishOrder(){
     const order = {
         request_id: makeRequestId(),
         origem: "SITE_KUKI",
+        loja_id: LOJA_ID,
 
         cliente:{
             nome:name,
@@ -2334,9 +2300,7 @@ renderProducts();
 updateCart();
 updateStoreStatus();
 loadStoreData();
-loadStoreHours();
 setInterval(updateStoreStatus, 60000);
-setInterval(loadStoreHours, 5 * 60 * 1000);
 setInterval(loadStoreData, 5 * 60 * 1000);
 </script>
 
