@@ -1052,9 +1052,9 @@ const SUPABASE_ANON_KEY = "sb_publishable_FqBkrIbKuNSmh78DidDpow_30o7P4kP";
 const CLIENTS_TABLE = "CLIENTES";
 
 // Multi-tenant: qual loja este site está mostrando. Lido da URL
-// (ex.: ?loja=queroja); "queroja" é o padrão pra manter o link
-// atual funcionando sem precisar acrescentar o parâmetro.
-const LOJA_SLUG = new URLSearchParams(window.location.search).get("loja") || "kuki";
+// (ex.: ?loja=kuki). Sem valor padrão — cada cliente usa seu próprio
+// link com ?loja=<slug-do-cliente>, sem exceção.
+const LOJA_SLUG = new URLSearchParams(window.location.search).get("loja") || "";
 let LOJA_ID = null;
 let lojaInfo = null;
 
@@ -1152,6 +1152,10 @@ function fillSelectOptionsFromStrings(selectId, values, placeholder){
 // por loja) por uma única chamada à função pública obter_loja_publica,
 // que já devolve tudo filtrado pela loja do slug atual.
 async function loadStoreData(){
+    if(!LOJA_SLUG){
+        mostrarErroLoja("Este link está incompleto. Peça para a loja te enviar o link correto (com o nome dela no final do endereço).");
+        return;
+    }
     try{
         const url = new URL(SUPABASE_URL + "/rest/v1/rpc/obter_loja_publica");
         const response = await fetch(url.toString(), {
@@ -1194,10 +1198,25 @@ async function loadStoreData(){
         console.error("Erro ao carregar dados da loja:", error);
         products = [];
         storeHoursLoaded = false;
+        mostrarErroLoja("Não encontramos essa loja. Confira com quem te passou o link se o endereço está certo.");
     }finally{
         renderProducts();
         updateStoreStatus();
     }
+}
+
+function mostrarErroLoja(mensagem){
+    if(document.getElementById("erroLojaOverlay")) return;
+    const overlay = document.createElement("div");
+    overlay.id = "erroLojaOverlay";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:99999;background:#fff8f2;display:flex;align-items:center;justify-content:center;padding:24px;font-family:Arial,sans-serif;";
+    overlay.innerHTML = `
+        <div style="max-width:380px;text-align:center;background:#fff;border-radius:16px;padding:32px 24px;box-shadow:0 10px 40px rgba(0,0,0,.12);">
+            <div style="font-size:42px;margin-bottom:12px;">🔗</div>
+            <h1 style="font-size:18px;color:#352c2c;margin:0 0 10px;">Link incompleto</h1>
+            <p style="font-size:14px;color:#777;line-height:1.5;margin:0;">${mensagem}</p>
+        </div>`;
+    document.body.appendChild(overlay);
 }
 
 function escapeOption(value){
