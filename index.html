@@ -735,7 +735,7 @@ body{
 <header>
     <div class="header">
         <a class="brand" id="brandLink" href="#" aria-label="Loja">
-            <img id="brandLogo" src="images/logo-kuki-transparente.png" alt="Logo da loja">
+            <img id="brandLogo" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23f0e6da'/%3E%3Ctext x='32' y='40' font-size='28' text-anchor='middle' font-family='Arial'%3E%F0%9F%8D%B4%3C/text%3E%3C/svg%3E" alt="Logo da loja">
         </a>
 
         <div class="header-actions">
@@ -748,7 +748,7 @@ body{
 
 <section class="hero">
     <h1>Faça seu pedido</h1>
-    <p>Escolha seus cookies favoritos e monte seu pedido.</p>
+    <p>Escolha os itens do cardápio e monte seu pedido.</p>
 </section>
 
 <div id="storeStatus" class="store-status" role="status"></div>
@@ -761,16 +761,18 @@ body{
 <footer class="site-footer">
     <div class="footer-content">
         <a class="instagram-link"
-           href="https://www.instagram.com/kukicookiees?igsi=ejd0dmI4Z2luMjI3"
+           id="footerInstagramLink"
+           href="#"
            target="_blank"
            rel="noopener noreferrer"
-           aria-label="Instagram da KUKI - Kukicookiees">
+           aria-label="Instagram da loja"
+           style="display:none;">
             <svg class="instagram-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" stroke-width="2"/>
                 <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/>
                 <circle cx="17.5" cy="6.5" r="1.2" fill="currentColor"/>
             </svg>
-            <span>Kukicookiees</span>
+            <span>Instagram</span>
         </a>
 
         <button class="history-float" type="button" onclick="openHistory()">
@@ -1052,9 +1054,9 @@ const SUPABASE_ANON_KEY = "sb_publishable_FqBkrIbKuNSmh78DidDpow_30o7P4kP";
 const CLIENTS_TABLE = "CLIENTES";
 
 // Multi-tenant: qual loja este site está mostrando. Lido da URL
-// (ex.: ?loja=kuki). Sem valor padrão — cada cliente usa seu próprio
-// link com ?loja=<slug-do-cliente>, sem exceção.
-const LOJA_SLUG = new URLSearchParams(window.location.search).get("loja") || "";
+// (ex.: ?loja=queroja); "queroja" é o padrão pra manter o link
+// atual funcionando sem precisar acrescentar o parâmetro.
+const LOJA_SLUG = new URLSearchParams(window.location.search).get("loja") || "queroja";
 let LOJA_ID = null;
 let lojaInfo = null;
 
@@ -1134,6 +1136,18 @@ function applyLojaBranding(loja){
         const brandLink = document.getElementById("brandLink");
         if(brandLink) brandLink.setAttribute("aria-label", loja.nome);
     }
+
+    const instagramUrl = loja.configuracoes && loja.configuracoes.instagram_url;
+    const instagramLink = document.getElementById("footerInstagramLink");
+    if(instagramLink){
+        if(instagramUrl){
+            instagramLink.href = instagramUrl;
+            instagramLink.setAttribute("aria-label", "Instagram de " + (loja.nome || "loja"));
+            instagramLink.style.display = "";
+        } else {
+            instagramLink.style.display = "none";
+        }
+    }
 }
 
 function fillSelectOptionsFromStrings(selectId, values, placeholder){
@@ -1152,10 +1166,6 @@ function fillSelectOptionsFromStrings(selectId, values, placeholder){
 // por loja) por uma única chamada à função pública obter_loja_publica,
 // que já devolve tudo filtrado pela loja do slug atual.
 async function loadStoreData(){
-    if(!LOJA_SLUG){
-        mostrarErroLoja("Este link está incompleto. Peça para a loja te enviar o link correto (com o nome dela no final do endereço).");
-        return;
-    }
     try{
         const url = new URL(SUPABASE_URL + "/rest/v1/rpc/obter_loja_publica");
         const response = await fetch(url.toString(), {
@@ -1198,25 +1208,10 @@ async function loadStoreData(){
         console.error("Erro ao carregar dados da loja:", error);
         products = [];
         storeHoursLoaded = false;
-        mostrarErroLoja("Não encontramos essa loja. Confira com quem te passou o link se o endereço está certo.");
     }finally{
         renderProducts();
         updateStoreStatus();
     }
-}
-
-function mostrarErroLoja(mensagem){
-    if(document.getElementById("erroLojaOverlay")) return;
-    const overlay = document.createElement("div");
-    overlay.id = "erroLojaOverlay";
-    overlay.style.cssText = "position:fixed;inset:0;z-index:99999;background:#fff8f2;display:flex;align-items:center;justify-content:center;padding:24px;font-family:Arial,sans-serif;";
-    overlay.innerHTML = `
-        <div style="max-width:380px;text-align:center;background:#fff;border-radius:16px;padding:32px 24px;box-shadow:0 10px 40px rgba(0,0,0,.12);">
-            <div style="font-size:42px;margin-bottom:12px;">🔗</div>
-            <h1 style="font-size:18px;color:#352c2c;margin:0 0 10px;">Link incompleto</h1>
-            <p style="font-size:14px;color:#777;line-height:1.5;margin:0;">${mensagem}</p>
-        </div>`;
-    document.body.appendChild(overlay);
 }
 
 function escapeOption(value){
